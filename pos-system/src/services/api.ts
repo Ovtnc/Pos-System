@@ -387,4 +387,42 @@ export const mockCategories: Category[] = [
   },
 ];
 
+// Favori API fonksiyonları
+export const favoriteAPI = {
+  // Favori ürünleri getir
+  getFavorites: async (userId: number): Promise<any[]> => {
+    try {
+      const response = await api.get(`/favorites/${userId}`);
+      return response.data.favorites || [];
+    } catch (error) {
+      console.error('Favori ürünler getirilemedi:', error);
+      return [];
+    }
+  },
+
+  // Favori ürün ekle
+  addFavorite: async (userId: number, productId: string): Promise<any> => {
+    try {
+      const response = await api.post('/favorites/add', { userId, productId });
+      return response.data;
+    } catch (error) {
+      console.error('Favori eklenemedi:', error);
+      throw new Error('Favori eklenemedi');
+    }
+  },
+
+  // Favori ürün kaldır
+  removeFavorite: async (userId: number, productId: string): Promise<any> => {
+    try {
+      const response = await api.delete('/favorites/remove', { 
+        data: { userId, productId } 
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Favori kaldırılamadı:', error);
+      throw new Error('Favori kaldırılamadı');
+    }
+  }
+};
+
 export default api;

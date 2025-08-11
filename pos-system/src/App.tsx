@@ -303,6 +303,7 @@ function App() {
             <ProductsSection
               selectedCategory={selectedCategory}
               onProductSelect={handleProductSelect}
+              user={user}
             />
           </Box>
           

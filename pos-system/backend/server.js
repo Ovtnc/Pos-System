@@ -128,6 +128,120 @@ app.get('/api/schema/kullanicilar', async (req, res) => {
   }
 });
 
+// Favori ürünler tablosunu oluştur
+app.post('/api/favorites/create-table', async (req, res) => {
+  try {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS favori_urunler (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        urun_id INT NOT NULL,
+        kullanici_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (urun_id) REFERENCES urunler(id) ON DELETE CASCADE,
+        FOREIGN KEY (kullanici_id) REFERENCES kullanicilar(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_favorite (urun_id, kullanici_id)
+      )
+    `);
+    res.json({
+      success: true,
+      message: 'Favori ürünler tablosu oluşturuldu'
+    });
+  } catch (error) {
+    console.error('Favori tablosu oluşturma hatası:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Favori ürünleri getir
+app.get('/api/favorites/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const [favorites] = await db.execute(`
+      SELECT f.id, f.urun_id, u.isim as urun_adi, u.fiyat, u.kategori_id, k.ad as kategori_adi
+      FROM favori_urunler f
+      JOIN urunler u ON f.urun_id = u.id
+      JOIN kategoriler k ON u.kategori_id = k.id
+      WHERE f.kullanici_id = ?
+      ORDER BY f.created_at DESC
+    `, [userId]);
+
+    res.json({
+      success: true,
+      favorites: favorites
+    });
+  } catch (error) {
+    console.error('Favori ürünler getirme hatası:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Favori ürünler getirilemedi'
+    });
+  }
+});
+
+// Favori ürün ekle
+app.post('/api/favorites/add', async (req, res) => {
+  try {
+    const { userId, productId } = req.body;
+    
+    if (!userId || !productId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Kullanıcı ID ve ürün ID gerekli'
+      });
+    }
+
+    await db.execute(`
+      INSERT INTO favori_urunler (urun_id, kullanici_id)
+      VALUES (?, ?)
+      ON DUPLICATE KEY UPDATE created_at = CURRENT_TIMESTAMP
+    `, [productId, userId]);
+
+    res.json({
+      success: true,
+      message: 'Ürün favorilere eklendi'
+    });
+  } catch (error) {
+    console.error('Favori ekleme hatası:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Favori eklenemedi'
+    });
+  }
+});
+
+// Favori ürün kaldır
+app.delete('/api/favorites/remove', async (req, res) => {
+  try {
+    const { userId, productId } = req.body;
+    
+    if (!userId || !productId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Kullanıcı ID ve ürün ID gerekli'
+      });
+    }
+
+    await db.execute(`
+      DELETE FROM favori_urunler 
+      WHERE urun_id = ? AND kullanici_id = ?
+    `, [productId, userId]);
+
+    res.json({
+      success: true,
+      message: 'Ürün favorilerden kaldırıldı'
+    });
+  } catch (error) {
+    console.error('Favori kaldırma hatası:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Favori kaldırılamadı'
+    });
+  }
+});
+
 app.get('/api/schema/kategoriler', async (req, res) => {
   try {
     const [columns] = await db.execute('DESCRIBE kategoriler');
@@ -288,14 +402,39 @@ app.get('/api/products', async (req, res) => {
 app.get('/api/products/category/:categoryId', async (req, res) => {
   try {
     const { categoryId } = req.params;
+    const { userId } = req.query;
     
-    const [products] = await db.execute(`
-      SELECT u.id, u.isim as name, u.fiyat as price, u.kategori_id, k.ad as category
-      FROM urunler u
-      LEFT JOIN kategoriler k ON u.kategori_id = k.id
-      WHERE u.kategori_id = ? AND u.aktif = 1
-      ORDER BY u.isim
-    `, [categoryId]);
+    let products;
+    
+    if (categoryId === '6') { // Hızlı İşlemler kategorisi
+      if (userId) {
+        // Favori ürünleri getir
+        const [favorites] = await db.execute(`
+          SELECT u.id, u.isim as name, u.fiyat as price, u.kategori_id, k.ad as category, 'favorite' as type
+          FROM favori_urunler f
+          JOIN urunler u ON f.urun_id = u.id
+          JOIN kategoriler k ON u.kategori_id = k.id
+          WHERE f.kullanici_id = ?
+          ORDER BY f.created_at DESC
+        `, [userId]);
+        
+        products = favorites;
+      } else {
+        // Kullanıcı giriş yapmamışsa boş liste
+        products = [];
+      }
+    } else {
+      // Normal kategori ürünleri
+      const [categoryProducts] = await db.execute(`
+        SELECT u.id, u.isim as name, u.fiyat as price, u.kategori_id, k.ad as category, 'normal' as type
+        FROM urunler u
+        LEFT JOIN kategoriler k ON u.kategori_id = k.id
+        WHERE u.kategori_id = ? AND u.aktif = 1
+        ORDER BY u.isim
+      `, [categoryId]);
+      
+      products = categoryProducts;
+    }
 
     res.json({
       success: true,

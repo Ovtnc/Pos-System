@@ -9,19 +9,27 @@ import {
   Alert,
   TextField,
   InputAdornment,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
-import { Search as SearchIcon } from '@mui/icons-material';
+import { 
+  Search as SearchIcon,
+  Favorite as FavoriteIcon,
+  FavoriteBorder as FavoriteBorderIcon,
+} from '@mui/icons-material';
 
-import { productAPI, Product } from '../services/api';
+import { productAPI, Product, favoriteAPI } from '../services/api';
 
 interface ProductsSectionProps {
   selectedCategory?: string;
   onProductSelect: (product: Product) => void;
+  user?: any;
 }
 
 const ProductsSection: React.FC<ProductsSectionProps> = ({
   selectedCategory,
   onProductSelect,
+  user,
 }) => {
   const theme = useTheme();
   const [products, setProducts] = useState<Product[]>([]);
@@ -29,6 +37,24 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favoriteLoading, setFavoriteLoading] = useState<{ [key: string]: boolean }>({});
+
+  // Favori ürünleri yükle
+  useEffect(() => {
+    const loadFavorites = async () => {
+      if (user?.id) {
+        try {
+          const favoritesData = await favoriteAPI.getFavorites(user.id);
+          setFavorites(favoritesData.map((fav: any) => fav.urun_id.toString()));
+        } catch (error) {
+          console.error('Favori ürünler yüklenemedi:', error);
+        }
+      }
+    };
+
+    loadFavorites();
+  }, [user?.id]);
 
   // Ürünleri API'den yükle
   useEffect(() => {
@@ -40,7 +66,8 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({
         let productsData: Product[];
         if (selectedCategory && selectedCategory.trim() !== '') {
           // Kategoriye göre ürünleri getir
-          productsData = await productAPI.getProductsByCategory(selectedCategory);
+          const url = user?.id ? `${selectedCategory}?userId=${user.id}` : selectedCategory;
+          productsData = await productAPI.getProductsByCategory(url);
         } else {
           // Tüm ürünleri getir
           productsData = await productAPI.getAllProducts();
@@ -57,7 +84,7 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({
     };
 
     loadProducts();
-  }, [selectedCategory]);
+  }, [selectedCategory, user?.id]);
 
   // Arama fonksiyonu
   useEffect(() => {
@@ -71,6 +98,29 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({
       setFilteredProducts(filtered);
     }
   }, [searchTerm, products]);
+
+  // Favori ekleme/kaldırma fonksiyonu
+  const handleFavoriteToggle = async (productId: string) => {
+    if (!user?.id) return;
+
+    setFavoriteLoading(prev => ({ ...prev, [productId]: true }));
+    
+    try {
+      if (favorites.includes(productId)) {
+        // Favorilerden kaldır
+        await favoriteAPI.removeFavorite(user.id, productId);
+        setFavorites(prev => prev.filter(id => id !== productId));
+      } else {
+        // Favorilere ekle
+        await favoriteAPI.addFavorite(user.id, productId);
+        setFavorites(prev => [...prev, productId]);
+      }
+    } catch (error) {
+      console.error('Favori işlemi başarısız:', error);
+    } finally {
+      setFavoriteLoading(prev => ({ ...prev, [productId]: false }));
+    }
+  };
 
   // Loading durumu
   if (loading) {
@@ -178,87 +228,139 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({
           <Card 
             key={product.id}
             sx={{ 
-              height: { xs: 160, sm: 170, md: 180, lg: 180 },
+              height: { xs: 140, sm: 150, md: 160, lg: 160 },
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'space-between',
               p: { xs: 1.5, sm: 2 },
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-              border: '1px solid #f0f0f0',
-              borderRadius: 2,
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                transform: 'translateY(-2px)',
-              },
+              background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+              border: 'none',
+              borderRadius: 3,
+              boxShadow: '0 4px 15px rgba(0,0,0,0.08)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               cursor: 'pointer',
-              backgroundColor: 'white',
+              position: 'relative',
+              overflow: 'hidden',
+              '&:hover': {
+                transform: 'translateY(-6px)',
+                boxShadow: '0 8px 25px rgba(0,0,0,0.15)',
+                '& .add-button': {
+                  backgroundColor: theme.palette.primary.dark,
+                  transform: 'scale(1.05)',
+                }
+              },
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: '3px',
+                background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                borderRadius: '3px 3px 0 0',
+              }
             }}
             onClick={() => onProductSelect(product)}
           >
-            <Box>
-              <Typography 
-                variant="h6" 
-                component="h3" 
-                sx={{ 
-                  fontWeight: 600,
-                  color: theme.palette.text.primary,
-                  fontSize: { xs: '0.9rem', sm: '1rem', md: '1.1rem' },
-                  textAlign: 'center',
-                  mb: 1,
-                  lineHeight: 1.2,
-                }}
-              >
-                {product.name}
-              </Typography>
-            </Box>
+            {/* Favori Butonu */}
+            {user?.id && (
+              <Box sx={{ position: 'absolute', top: 6, right: 6, zIndex: 2 }}>
+                <Tooltip title={favorites.includes(product.id) ? 'Favorilerden kaldır' : 'Favorilere ekle'}>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleFavoriteToggle(product.id);
+                    }}
+                    disabled={favoriteLoading[product.id]}
+                    sx={{
+                      backgroundColor: 'rgba(255,255,255,0.9)',
+                      backdropFilter: 'blur(8px)',
+                      color: favorites.includes(product.id) ? theme.palette.error.main : theme.palette.grey[500],
+                      '&:hover': {
+                        backgroundColor: 'rgba(255,255,255,0.95)',
+                        color: favorites.includes(product.id) ? theme.palette.error.dark : theme.palette.primary.main,
+                        transform: 'scale(1.1)',
+                      },
+                      transition: 'all 0.2s ease',
+                      width: 28,
+                      height: 28,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                    }}
+                  >
+                    {favorites.includes(product.id) ? <FavoriteIcon fontSize="small" /> : <FavoriteBorderIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            )}
+
+            {/* Ürün Adı */}
+            <Typography 
+              variant="h6" 
+              component="h3" 
+              sx={{ 
+                fontWeight: 600,
+                color: theme.palette.text.primary,
+                fontSize: { xs: '0.85rem', sm: '0.9rem', md: '1rem' },
+                textAlign: 'center',
+                mb: 1,
+                lineHeight: 1.3,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                pr: user?.id ? 3 : 0,
+                minHeight: { xs: '2.6rem', sm: '2.8rem', md: '3rem' },
+              }}
+            >
+              {product.name}
+            </Typography>
             
+            {/* Fiyat */}
             <Typography 
               variant="h5" 
               sx={{ 
                 color: theme.palette.primary.main,
                 fontWeight: 700,
-                fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
+                fontSize: { xs: '1rem', sm: '1.1rem', md: '1.2rem' },
                 textAlign: 'center',
+                mb: 2,
+                textShadow: '0 1px 2px rgba(0,0,0,0.05)',
               }}
             >
               ₺{product.price.toFixed(2)}
             </Typography>
             
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center',
-              mt: 'auto'
-            }}>
-              <Button
-                variant="contained"
-                size="medium"
-                sx={{ 
+            {/* Sepete Ekle Butonu */}
+            <Button
+              variant="outlined"
+              className="add-button"
+              size="medium"
+              sx={{ 
+                border: `2px solid ${theme.palette.primary.main}`,
+                borderRadius: 3,
+                py: { xs: 0.5, sm: 0.75 },
+                px: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: { xs: '0.75rem', sm: '0.8rem', md: '0.85rem' },
+                color: theme.palette.primary.main,
+                backgroundColor: 'transparent',
+                transition: 'all 0.3s ease',
+                '&:hover': {
                   backgroundColor: theme.palette.primary.main,
-                  borderRadius: 2,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  display: 'flex',  
-                  width: '100%',
-                  height: '100%',
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  fontSize: { xs: '0.8rem', sm: '0.85rem', md: '0.9rem' },
-                  py: { xs: 0.5, sm: 0.75, md: 1 },
-                  '&:hover': {
-                    backgroundColor: theme.palette.primary.dark,
-                    transform: 'scale(1.05)',
-                  },
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onProductSelect(product);
-                }}
-              >
-                Ekle
-              </Button>
-            </Box>
+                  color: 'white',
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                },
+                '&:active': {
+                  transform: 'translateY(0) scale(0.98)',
+                }
+              }}
+            >
+              + Ekle
+            </Button>
           </Card>
         ))}
       </Box>

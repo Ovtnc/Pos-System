@@ -63,7 +63,7 @@ const Header: React.FC<HeaderProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <StoreIcon sx={{ fontSize: 32, color: 'white' }} />
             <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'white' }}>
-              POS System
+             Charlie Coffee
             </Typography>
           </Box>
         </Box>
