@@ -25,7 +25,10 @@ import {
   ShoppingCart as ShoppingCartIcon,
   BarChart as BarChartIcon,
   PieChart as PieChartIcon,
-  ShowChart as LineChartIcon
+  ShowChart as LineChartIcon,
+  Inventory as InventoryIcon,
+  Phone as PhoneIcon,
+  Assessment as AssessmentIcon
 } from '@mui/icons-material';
 import {
   Chart as ChartJS,
@@ -102,9 +105,12 @@ interface DashboardProps {
   user?: any;
   onBack: () => void;
   onOrderClick: () => void;
+  onStockClick: () => void;
+  onTableCallClick: () => void;
+  onReportsClick: () => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ user, onBack, onOrderClick }) => {
+const Dashboard: React.FC<DashboardProps> = ({ user, onBack, onOrderClick, onStockClick, onTableCallClick, onReportsClick }) => {
   const [dashboardData, setDashboardData] = useState<DashboardData>({
     dailySales: 0,
     dailyTransactions: 0,
@@ -127,7 +133,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onBack, onOrderClick }) => 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:3001/api/dashboard?sube=${user?.sube || 'merkez'}`);
+      const response = await fetch(`http://localhost:3001/api/dashboard?subeId=${user?.sube_id || 1}`);
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -369,9 +375,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onBack, onOrderClick }) => 
               </ListItemIcon>
               <ListItemText primary="Ana Sayfa" />
             </ListItem>
+           
             <ListItem 
               component="button"
-              onClick={onOrderClick} 
+              onClick={onStockClick} 
               sx={{ 
                 borderRadius: 2, 
                 mb: 1, 
@@ -386,9 +393,51 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onBack, onOrderClick }) => 
               }}
             >
               <ListItemIcon>
-                <ShoppingCartIcon sx={{ color: '#666' }} />
+                <InventoryIcon sx={{ color: '#666' }} />
               </ListItemIcon>
-              <ListItemText primary="Sipariş Ver" />
+              <ListItemText primary="Stok Takip" />
+            </ListItem>
+            <ListItem 
+              component="button"
+              onClick={onTableCallClick} 
+              sx={{ 
+                borderRadius: 2, 
+                mb: 1, 
+                width: '100%', 
+                textAlign: 'left',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.04)'
+                }
+              }}
+            >
+              <ListItemIcon>
+                <PhoneIcon sx={{ color: '#666' }} />
+              </ListItemIcon>
+              <ListItemText primary="Masa Çağır" />
+            </ListItem>
+            <ListItem 
+              component="button"
+              onClick={onReportsClick} 
+              sx={{ 
+                borderRadius: 2, 
+                mb: 1, 
+                width: '100%', 
+                textAlign: 'left',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.04)'
+                }
+              }}
+            >
+              <ListItemIcon>
+                <AssessmentIcon sx={{ color: '#666' }} />
+              </ListItemIcon>
+              <ListItemText primary="Raporlar" />
             </ListItem>
           </List>
         </Box>
@@ -577,7 +626,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onBack, onOrderClick }) => 
                 Günlük Saatlik Satış
               </Typography>
               <Box sx={{ height: 300 }}>
-                <Bar 
+                <Line 
                   data={hourlySalesData}
                   options={{
                     responsive: true,
@@ -595,6 +644,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onBack, onOrderClick }) => 
                             return '₺' + value.toLocaleString();
                           }
                         }
+                      },
+                      x: {
+                        title: {
+                          display: true,
+                          text: 'Saatler (Bugün)'
+                        }
+                      }
+                    },
+                    elements: {
+                      line: {
+                        tension: 0.4,
+                        borderWidth: 3,
+                        borderColor: '#ff9800'
+                      },
+                      point: {
+                        radius: 6,
+                        backgroundColor: '#ff9800',
+                        borderColor: '#fff',
+                        borderWidth: 2
                       }
                     }
                   }}

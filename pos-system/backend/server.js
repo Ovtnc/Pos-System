@@ -77,7 +77,7 @@ app.get('/api/schema/siparisler', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({
-      success: false,
+        success: false, 
       error: error.message
     });
   }
@@ -107,7 +107,7 @@ app.get('/api/schema/masalar', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({
-      success: false,
+        success: false, 
       error: error.message
     });
   }
@@ -149,7 +149,7 @@ app.post('/api/favorites/create-table', async (req, res) => {
   } catch (error) {
     console.error('Favori tablosu oluşturma hatası:', error);
     res.status(500).json({
-      success: false,
+        success: false, 
       error: error.message
     });
   }
@@ -167,7 +167,7 @@ app.get('/api/favorites/:userId', async (req, res) => {
       WHERE f.kullanici_id = ?
       ORDER BY f.created_at DESC
     `, [userId]);
-
+    
     res.json({
       success: true,
       favorites: favorites
@@ -205,8 +205,8 @@ app.post('/api/favorites/add', async (req, res) => {
     });
   } catch (error) {
     console.error('Favori ekleme hatası:', error);
-    res.status(500).json({
-      success: false,
+    res.status(500).json({ 
+      success: false, 
       error: 'Favori eklenemedi'
     });
   }
@@ -274,11 +274,259 @@ app.get('/api/schema/subeler', async (req, res) => {
 
 
 
+// Stok tablosu oluşturma endpoint'i
+app.post('/api/stock/create-table', async (req, res) => {
+  try {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS stok (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        urun_id INT NULL,
+        urun_adi VARCHAR(100) NOT NULL,
+        mevcut_stok INT NOT NULL DEFAULT 0,
+        minimum_stok INT NOT NULL DEFAULT 10,
+        birim VARCHAR(20) NOT NULL DEFAULT 'adet',
+        son_guncelleme TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Stok hareketleri tablosu
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS stok_hareketleri (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        urun_id INT NOT NULL,
+        hareket_tipi ENUM('giris', 'cikis', 'transfer') NOT NULL,
+        miktar INT NOT NULL,
+        onceki_stok INT NOT NULL,
+        yeni_stok INT NOT NULL,
+        aciklama TEXT,
+        sube_id INT,
+        kullanici_id INT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (urun_id) REFERENCES urunler(id) ON DELETE CASCADE,
+        FOREIGN KEY (sube_id) REFERENCES subeler(id) ON DELETE SET NULL,
+        FOREIGN KEY (kullanici_id) REFERENCES kullanicilar(id) ON DELETE SET NULL
+      )
+    `);
+
+    res.json({ success: true, message: 'Stok tabloları oluşturuldu' });
+  } catch (error) {
+    console.error('Stok tablosu oluşturma hatası:', error);
+    res.status(500).json({ success: false, error: 'Stok tabloları oluşturulamadı' });
+  }
+});
+
+// Stok tablosuna örnek veriler ekleme endpoint'i
+app.post('/api/stock/seed', async (req, res) => {
+  try {
+    // Önce tabloları sil ve yeniden oluştur
+    await db.execute('DROP TABLE IF EXISTS stok_hareketleri');
+    await db.execute('DROP TABLE IF EXISTS stok');
+    
+    // Stok tablosunu yeniden oluştur
+    await db.execute(`
+      CREATE TABLE stok (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        urun_id INT NULL,
+        urun_adi VARCHAR(100) NOT NULL,
+        mevcut_stok INT NOT NULL DEFAULT 0,
+        minimum_stok INT NOT NULL DEFAULT 10,
+        birim VARCHAR(20) NOT NULL DEFAULT 'adet',
+        son_guncelleme TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Stok hareketleri tablosunu yeniden oluştur
+    await db.execute(`
+      CREATE TABLE stok_hareketleri (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        urun_id INT NULL,
+        hareket_tipi ENUM('giris', 'cikis', 'transfer') NOT NULL,
+        miktar INT NOT NULL,
+        onceki_stok INT NOT NULL,
+        yeni_stok INT NOT NULL,
+        aciklama TEXT,
+        sube_id INT,
+        kullanici_id INT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Varsayılan kategori ekle
+    await db.execute(`
+      INSERT INTO kategoriler (ad, aciklama, sube_id)
+      VALUES (?, ?, ?)
+    `, ['Malzemeler', 'Kafe malzemeleri', 1]);
+
+    
+
+    // Her malzeme için stok kaydı oluştur
+    for (const item of cafeItems) {
+      const currentStock = Math.floor(Math.random() * 100) + 10; // 10-110 arası rastgele stok
+      
+      // Önce ürünü ekle
+      const [productResult] = await db.execute(`
+        INSERT INTO urunler (isim, fiyat, kategori_id)
+        VALUES (?, ?, ?)
+      `, [item.name, 0, 1]); // kategori_id 1 varsayılan olarak
+      
+      const urunId = productResult.insertId;
+      
+      // Sonra stok kaydını oluştur
+      await db.execute(`
+        INSERT INTO stok (urun_id, urun_adi, mevcut_stok, minimum_stok, birim, sube_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [urunId, item.name, currentStock, item.min, item.unit, 1]); // sube_id 1 varsayılan olarak
+      
+      // Örnek stok hareketleri ekle
+      const oncekiStok = currentStock - 10;
+      const yeniStok = currentStock;
+      
+      // Giriş hareketi
+      await db.execute(`
+        INSERT INTO stok_hareketleri 
+        (urun_id, hareket_tipi, miktar, onceki_stok, yeni_stok, aciklama, sube_id, kullanici_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [urunId, 'giris', 10, oncekiStok, yeniStok, 'İlk stok girişi', 1, 1]);
+      
+      // Çıkış hareketi
+      const cikisOnceki = yeniStok;
+      const cikisYeni = yeniStok - 5;
+      await db.execute(`
+        INSERT INTO stok_hareketleri 
+        (urun_id, hareket_tipi, miktar, onceki_stok, yeni_stok, aciklama, sube_id, kullanici_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [urunId, 'cikis', 5, cikisOnceki, cikisYeni, 'Örnek çıkış', 1, 1]);
+    }
+
+    res.json({ success: true, message: 'Kafe malzemeleri stok tablosuna eklendi' });
+  } catch (error) {
+    console.error('Stok seed hatası:', error);
+    res.status(500).json({ success: false, error: 'Stok verileri eklenemedi' });
+  }
+});
+
+// Stok listesi endpoint'i
+app.get('/api/stock', async (req, res) => {
+  try {
+    const [stock] = await db.execute(`
+      SELECT 
+        s.id,
+        s.urun_id,
+        s.urun_adi,
+        s.mevcut_stok,
+        s.minimum_stok,
+        s.birim,
+        s.son_guncelleme,
+        COALESCE(u.fiyat, 0) as fiyat,
+        COALESCE(k.ad, 'Malzeme') as kategori_adi
+      FROM stok s
+      LEFT JOIN urunler u ON s.urun_id = u.id
+      LEFT JOIN kategoriler k ON u.kategori_id = k.id
+      ORDER BY s.urun_adi
+    `);
+
+    res.json({ success: true, stock: stock });
+  } catch (error) {
+    console.error('Stok listesi hatası:', error);
+    res.status(500).json({ success: false, error: 'Stok listesi getirilemedi' });
+  }
+});
+
+// Stok güncelleme endpoint'i
+app.put('/api/stock/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { miktar, hareket_tipi, aciklama, sube_id, kullanici_id } = req.body;
+
+    // Mevcut stok bilgisini al
+    const [currentStock] = await db.execute(`
+      SELECT mevcut_stok, urun_id, urun_adi FROM stok WHERE id = ?
+    `, [id]);
+
+    if (currentStock.length === 0) {
+      return res.status(404).json({ success: false, error: 'Ürün bulunamadı' });
+    }
+
+    const onceki_stok = currentStock[0].mevcut_stok;
+    let yeni_stok = onceki_stok;
+
+    // Stok hesaplama
+    if (hareket_tipi === 'giris') {
+      yeni_stok = onceki_stok + miktar;
+    } else if (hareket_tipi === 'cikis') {
+      yeni_stok = onceki_stok - miktar;
+      if (yeni_stok < 0) {
+        return res.status(400).json({ success: false, error: 'Yetersiz stok' });
+      }
+    }
+
+    // Stok güncelle
+    await db.execute(`
+      UPDATE stok 
+      SET mevcut_stok = ?, son_guncelleme = NOW()
+      WHERE id = ?
+    `, [yeni_stok, id]);
+
+    // Stok hareketi kaydet
+    await db.execute(`
+      INSERT INTO stok_hareketleri 
+      (urun_id, hareket_tipi, miktar, onceki_stok, yeni_stok, aciklama, sube_id, kullanici_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, hareket_tipi, miktar, onceki_stok, yeni_stok, aciklama, sube_id, kullanici_id]);
+
+    res.json({ 
+      success: true, 
+      message: 'Stok güncellendi',
+      yeni_stok: yeni_stok
+    });
+  } catch (error) {
+    console.error('Stok güncelleme hatası:', error);
+    res.status(500).json({ success: false, error: 'Stok güncellenemedi' });
+  }
+});
+
+// Stok hareketleri endpoint'i
+app.get('/api/stock/movements', async (req, res) => {
+  try {
+    const [movements] = await db.execute(`
+      SELECT 
+        sh.id,
+        sh.hareket_tipi,
+        sh.miktar,
+        sh.onceki_stok,
+        sh.yeni_stok,
+        sh.aciklama,
+        sh.created_at,
+        s.urun_adi,
+        sub.sube_adi,
+        k.kullanici_adi
+      FROM stok_hareketleri sh
+      LEFT JOIN stok s ON sh.urun_id = s.id
+      LEFT JOIN subeler sub ON sh.sube_id = sub.id
+      LEFT JOIN kullanicilar k ON sh.kullanici_id = k.id
+      ORDER BY sh.created_at DESC
+      LIMIT 50
+    `);
+
+    res.json({ 
+      success: true, 
+      movements: movements,
+      total: movements.length,
+      maxRecords: 50
+    });
+  } catch (error) {
+    console.error('Stok hareketleri hatası:', error);
+    res.status(500).json({ success: false, error: 'Stok hareketleri getirilemedi' });
+  }
+});
+
 // Dashboard endpoint
 app.get('/api/dashboard', async (req, res) => {
   try {
-    const { sube } = req.query;
-    const subeId = sube === 'merkez' ? 1 : sube === 'ozgurluk' ? 2 : 1;
+    const { subeId } = req.query;
+    const branchId = subeId ? parseInt(subeId) : 1;
 
     // Günlük satışlar
     const [dailySales] = await db.execute(`
@@ -286,9 +534,9 @@ app.get('/api/dashboard', async (req, res) => {
         COALESCE(SUM(tutar), 0) as total_sales,
         COUNT(*) as transaction_count
       FROM odemeler 
-      WHERE DATE(created_at) = CURDATE() 
+      WHERE DATE(odeme_tarihi) = CURDATE() 
       AND sube_id = ?
-    `, [subeId]);
+    `, [branchId]);
 
     // Haftalık satışlar
     const [weeklySales] = await db.execute(`
@@ -296,9 +544,9 @@ app.get('/api/dashboard', async (req, res) => {
         COALESCE(SUM(tutar), 0) as total_sales,
         COUNT(*) as transaction_count
       FROM odemeler 
-      WHERE YEARWEEK(created_at) = YEARWEEK(NOW()) 
+      WHERE YEARWEEK(odeme_tarihi) = YEARWEEK(NOW()) 
       AND sube_id = ?
-    `, [subeId]);
+    `, [branchId]);
 
     // Aylık satışlar
     const [monthlySales] = await db.execute(`
@@ -306,10 +554,10 @@ app.get('/api/dashboard', async (req, res) => {
         COALESCE(SUM(tutar), 0) as total_sales,
         COUNT(*) as transaction_count
       FROM odemeler 
-      WHERE YEAR(created_at) = YEAR(NOW()) 
-      AND MONTH(created_at) = MONTH(NOW())
+      WHERE YEAR(odeme_tarihi) = YEAR(NOW()) 
+      AND MONTH(odeme_tarihi) = MONTH(NOW())
       AND sube_id = ?
-    `, [subeId]);
+    `, [branchId]);
 
     // Yıllık satışlar
     const [yearlySales] = await db.execute(`
@@ -317,9 +565,9 @@ app.get('/api/dashboard', async (req, res) => {
         COALESCE(SUM(tutar), 0) as total_sales,
         COUNT(*) as transaction_count
       FROM odemeler 
-      WHERE YEAR(created_at) = YEAR(NOW())
+      WHERE YEAR(odeme_tarihi) = YEAR(NOW())
       AND sube_id = ?
-    `, [subeId]);
+    `, [branchId]);
 
     // Ödeme yöntemlerine göre bugünkü satışlar
     const [paymentMethods] = await db.execute(`
@@ -327,10 +575,10 @@ app.get('/api/dashboard', async (req, res) => {
         odeme_tipi,
         COALESCE(SUM(tutar), 0) as total_amount
       FROM odemeler 
-      WHERE DATE(created_at) = CURDATE() 
+      WHERE DATE(odeme_tarihi) = CURDATE() 
       AND sube_id = ?
       GROUP BY odeme_tipi
-    `, [subeId]);
+    `, [branchId]);
 
     // Son 10 satış
     const [recentSales] = await db.execute(`
@@ -339,26 +587,26 @@ app.get('/api/dashboard', async (req, res) => {
         odeme_no,
         tutar,
         odeme_tipi,
-        created_at
+        odeme_tarihi as created_at
       FROM odemeler 
       WHERE sube_id = ?
-      ORDER BY created_at DESC
+      ORDER BY odeme_tarihi DESC
       LIMIT 10
-    `, [subeId]);
+    `, [branchId]);
 
     // Bu ayın günlük satış analizi
     const [dailySalesThisMonth] = await db.execute(`
       SELECT 
-        DATE(created_at) as date,
+        DATE(odeme_tarihi) as date,
         COALESCE(SUM(tutar), 0) as total_sales,
         COUNT(*) as transaction_count
       FROM odemeler 
-      WHERE YEAR(created_at) = YEAR(NOW()) 
-      AND MONTH(created_at) = MONTH(NOW())
+      WHERE YEAR(odeme_tarihi) = YEAR(NOW()) 
+      AND MONTH(odeme_tarihi) = MONTH(NOW())
       AND sube_id = ?
-      GROUP BY DATE(created_at)
+      GROUP BY DATE(odeme_tarihi)
       ORDER BY date
-    `, [subeId]);
+    `, [branchId]);
 
     // En çok satan ürünler
     const [topProducts] = await db.execute(`
@@ -367,26 +615,28 @@ app.get('/api/dashboard', async (req, res) => {
         SUM(sd.adet) as total_quantity,
         SUM(sd.toplam_fiyat) as total_revenue
       FROM siparis_detaylari sd
+      JOIN siparisler s ON sd.siparis_id = s.id
       JOIN urunler u ON sd.urun_id = u.id
-      WHERE MONTH(sd.created_at) = MONTH(NOW())
-      AND YEAR(sd.created_at) = YEAR(NOW())
+      WHERE MONTH(s.created_at) = MONTH(NOW())
+      AND YEAR(s.created_at) = YEAR(NOW())
+      AND s.sube_id = ?
       GROUP BY u.id, u.isim
       ORDER BY total_quantity DESC
       LIMIT 10
-    `);
+    `, [branchId]);
 
     // Günlük saatlik satış (bugün)
     const [hourlySalesToday] = await db.execute(`
       SELECT 
-        HOUR(created_at) as hour,
+        HOUR(odeme_tarihi) as hour,
         COALESCE(SUM(tutar), 0) as total_sales,
         COUNT(*) as transaction_count
       FROM odemeler 
-      WHERE DATE(created_at) = CURDATE() 
+      WHERE DATE(odeme_tarihi) = CURDATE() 
       AND sube_id = ?
-      GROUP BY HOUR(created_at)
+      GROUP BY HOUR(odeme_tarihi)
       ORDER BY hour
-    `, [subeId]);
+    `, [branchId]);
 
     // Ödeme türleri dağılımı (bu ay)
     const [paymentTypeDistribution] = await db.execute(`
@@ -395,11 +645,11 @@ app.get('/api/dashboard', async (req, res) => {
         COUNT(*) as count,
         COALESCE(SUM(tutar), 0) as total_amount
       FROM odemeler 
-      WHERE YEAR(created_at) = YEAR(NOW()) 
-      AND MONTH(created_at) = MONTH(NOW())
+      WHERE YEAR(odeme_tarihi) = YEAR(NOW()) 
+      AND MONTH(odeme_tarihi) = MONTH(NOW())
       AND sube_id = ?
       GROUP BY odeme_tipi
-    `, [subeId]);
+    `, [branchId]);
 
     // Ödeme yöntemlerini düzenle
     const paymentDetails = {
@@ -457,7 +707,7 @@ app.get('/api/subeler', async (req, res) => {
       ORDER BY sube_adi
     `);
 
-    res.json({
+  res.json({ 
       success: true,
       subeler: subeler
     });
@@ -473,7 +723,7 @@ app.get('/api/subeler', async (req, res) => {
 app.get('/api/users', async (req, res) => {
   try {
     const [users] = await db.execute(`
-      SELECT id, kullanici_adi, sube_adi
+      SELECT id, kullanici_adi, sube_adi, sube_id
       FROM kullanicilar
       ORDER BY kullanici_adi
     `);
@@ -487,6 +737,40 @@ app.get('/api/users', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: 'Kullanıcılar getirilemedi' 
+    });
+  }
+});
+
+// Create test users
+app.post('/api/users/create-test', async (req, res) => {
+  try {
+    const crypto = require('crypto');
+    
+    // Merkez kullanıcısı
+    const merkezPassword = crypto.createHash('sha256').update('password').digest('hex');
+    await db.execute(`
+      INSERT INTO kullanicilar (kullanici_adi, sifre_hash, rol, sube_id, sube_adi)
+      VALUES (?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE sifre_hash = ?
+    `, ['merkez_user', merkezPassword, 'admin', 1, 'Merkez', merkezPassword]);
+
+    // Özgürlük kullanıcısı
+    const ozgurlukPassword = crypto.createHash('sha256').update('ozgurluk').digest('hex');
+    await db.execute(`
+      INSERT INTO kullanicilar (kullanici_adi, sifre_hash, rol, sube_id, sube_adi)
+      VALUES (?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE sifre_hash = ?
+    `, ['ozgurluk_user', ozgurlukPassword, 'admin', 2, 'Özgürlük', ozgurlukPassword]);
+
+    res.json({
+      success: true,
+      message: 'Test kullanıcıları oluşturuldu'
+    });
+  } catch (error) {
+    console.error('Create test users error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Test kullanıcıları oluşturulamadı' 
     });
   }
 });
@@ -535,7 +819,7 @@ app.post('/api/auth/login', async (req, res) => {
         username: user.kullanici_adi,
         name: user.kullanici_adi,
         role: user.rol,
-        subeId: user.sube_id,
+        sube_id: user.sube_id,
         sube: user.sube_adi
       }
     });
@@ -567,7 +851,7 @@ app.get('/api/products', async (req, res) => {
   } catch (error) {
     console.error('Products fetch error:', error);
     res.status(500).json({ 
-      success: false, 
+        success: false,
       error: 'Ürünler getirilemedi' 
     });
   }
@@ -610,7 +894,7 @@ app.get('/api/products/category/:categoryId', async (req, res) => {
 
       products = categoryProducts;
     }
-
+    
     res.json({
       success: true,
       products: products
@@ -641,7 +925,7 @@ app.get('/api/categories', async (req, res) => {
           ELSE 7
         END
     `);
-
+    
     res.json({
       success: true,
       categories: categories
@@ -658,7 +942,7 @@ app.get('/api/categories', async (req, res) => {
 // Payment endpoint
 app.post('/api/payments', async (req, res) => {
   try {
-    const { items, amount, tableId, paymentMethod } = req.body;
+    const { items, amount, tableId, paymentMethod, userId } = req.body;
     
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ 
@@ -666,13 +950,36 @@ app.post('/api/payments', async (req, res) => {
         error: 'Ürün listesi gerekli' 
       });
     }
-
+    
     if (!amount || amount <= 0) {
       return res.status(400).json({ 
         success: false, 
         error: 'Geçerli tutar gerekli' 
       });
     }
+
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Kullanıcı ID gerekli' 
+      });
+    }
+
+    // Kullanıcının şube bilgisini al
+    const [users] = await db.execute(`
+      SELECT sube_id
+      FROM kullanicilar
+      WHERE id = ?
+    `, [userId]);
+
+    if (users.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Kullanıcı bulunamadı' 
+      });
+    }
+
+    const subeId = users[0].sube_id;
 
     // Ödeme tipini dönüştür
     let odemeTipi = 'nakit';
@@ -694,8 +1001,8 @@ app.post('/api/payments', async (req, res) => {
     const odemeNo = `OD${Date.now()}`;
     const [paymentResult] = await db.execute(`
       INSERT INTO odemeler (odeme_no, tutar, odeme_tipi, sube_id)
-      VALUES (?, ?, ?, 1)
-    `, [odemeNo, amount, odemeTipi]);
+      VALUES (?, ?, ?, ?)
+    `, [odemeNo, amount, odemeTipi, subeId]);
 
     const odemeId = paymentResult.insertId;
 
@@ -703,35 +1010,35 @@ app.post('/api/payments', async (req, res) => {
     const siparisNo = `SP${Date.now()}`;
     const [orderResult] = await db.execute(`
       INSERT INTO siparisler (siparis_no, masa_id, toplam_tutar, odenecek_tutar, durum, siparis_tipi, sube_id)
-      VALUES (?, ?, ?, ?, 'tamamlandi', 'self', 1)
-    `, [siparisNo, tableId || null, amount, amount]);
+      VALUES (?, ?, ?, ?, 'tamamlandi', 'self', ?)
+    `, [siparisNo, tableId || null, amount, amount, subeId]);
 
     const siparisId = orderResult.insertId;
 
     // Sipariş detayları
     for (const item of items) {
       await db.execute(`
-        INSERT INTO siparis_detaylari (siparis_id, urun_id, urun_adi, adet, birim_fiyat, toplam_fiyat)
+        INSERT INTO siparis_detaylari (siparis_id, urun_id, urun_adi, adet, birim_fiyat, toplam_fiyat) 
         VALUES (?, ?, ?, ?, ?, ?)
       `, [siparisId, item.id, item.name, item.quantity, item.price, item.price * item.quantity]);
     }
-
+    
     // Masa güncelleme (eğer masa varsa)
     if (tableId) {
-      await db.execute(`
+    await db.execute(`
         UPDATE masalar 
         SET durum = 'kapali', kapanis_tarihi = NOW(), toplam_tutar = toplam_tutar + ?, updated_at = NOW()
-        WHERE id = ?
+      WHERE id = ?
       `, [amount, tableId]);
     }
-
+    
     res.json({
       success: true,
       message: 'Ödeme başarıyla kaydedildi',
       odemeId: odemeId,
       siparisId: siparisId
     });
-
+    
   } catch (error) {
     console.error('Payment error:', error);
     res.status(500).json({ 
@@ -788,8 +1095,8 @@ app.get('/api/tables/all', async (req, res) => {
       FROM masalar
       ORDER BY masa_adi
     `);
-
-  res.json({ 
+    
+    res.json({
       success: true,
       tables: tables
     });
@@ -931,6 +1238,47 @@ app.post('/api/tables/reserve', async (req, res) => {
   }
 });
 
+// Kapatılan masaları listele (odemeler tablosundan)
+app.get('/api/tables/closed', async (req, res) => {
+  try {
+    const { date, subeId } = req.query;
+    const queryDate = date || new Date().toISOString().split('T')[0];
+    
+    // Şube filtresi
+    const subeFilter = subeId ? 'AND o.sube_id = ?' : '';
+    const params = subeId ? [queryDate, subeId] : [queryDate];
+    
+    // Ödemeler tablosundaki verileri çek
+    const [payments] = await db.execute(`
+      SELECT 
+        o.id,
+        o.odeme_no,
+        o.tutar as toplam_tutar,
+        o.odeme_tipi,
+        o.odeme_tarihi as kapanis_tarihi,
+        'Bilinmeyen' as acan_kullanici_adi,
+        COALESCE(s.sube_adi, 'Merkez') as sube_adi,
+        COALESCE(m.masa_adi, CONCAT('Ödeme ', o.odeme_no)) as masa_adi
+      FROM odemeler o
+      LEFT JOIN subeler s ON o.sube_id = s.id
+      LEFT JOIN masalar m ON o.masa_id = m.id
+      WHERE DATE(o.odeme_tarihi) = ? ${subeFilter}
+      ORDER BY o.odeme_tarihi DESC
+    `, params);
+    
+    res.json({
+      success: true,
+      tables: payments
+    });
+  } catch (error) {
+    console.error('Closed tables fetch error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Kapatılan masalar getirilemedi: ' + error.message
+    });
+  }
+});
+
 // Masa detayını getir
 app.get('/api/tables/:tableId', async (req, res) => {
   try {
@@ -999,10 +1347,10 @@ app.post('/api/orders', async (req, res) => {
     
     // Masa güncelleme (eğer masa varsa)
     if (tableId) {
-    await db.execute(`
+      await db.execute(`
         UPDATE masalar 
         SET toplam_tutar = toplam_tutar + ?, updated_at = NOW()
-      WHERE id = ?
+        WHERE id = ?
       `, [totalAmount, tableId]);
     }
     
@@ -1035,7 +1383,7 @@ app.get('/api/orders/table/:tableId', async (req, res) => {
       LEFT JOIN siparis_detaylari sd ON s.id = sd.siparis_id
       WHERE s.masa_id = ? AND s.durum != 'tamamlandi'
       ORDER BY s.created_at DESC
-    `, [tableId]);
+      `, [tableId]);
 
     res.json({
       success: true,
@@ -1074,7 +1422,7 @@ app.put('/api/orders/:orderId/status', async (req, res) => {
       success: true,
       message: 'Sipariş durumu güncellendi'
     });
-
+    
   } catch (error) {
     console.error('Order status update error:', error);
     res.status(500).json({ 
@@ -1087,12 +1435,19 @@ app.put('/api/orders/:orderId/status', async (req, res) => {
 // Ödemeleri listele
 app.get('/api/payments', async (req, res) => {
   try {
+    const { subeId } = req.query;
+    
+    // Şube filtresi
+    const subeFilter = subeId ? 'WHERE sube_id = ?' : '';
+    const params = subeId ? [subeId] : [];
+    
     const [payments] = await db.execute(`
       SELECT id, odeme_no, tutar, odeme_tipi, odeme_tarihi
       FROM odemeler
+      ${subeFilter}
       ORDER BY odeme_tarihi DESC
       LIMIT 10
-    `);
+    `, params);
     
     res.json({
       success: true,
@@ -1103,6 +1458,186 @@ app.get('/api/payments', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: 'Ödemeler getirilemedi' 
+    });
+  }
+});
+
+// Masa ödeme bilgilerini güncelle
+app.put('/api/tables/:tableId/payment', async (req, res) => {
+  try {
+    const { tableId } = req.params;
+    const { odeme_tipi, tutar, kullanici_id } = req.body;
+    
+    if (!odeme_tipi || !tutar) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Ödeme tipi ve tutar gerekli' 
+      });
+    }
+
+    // Ödeme kaydını güncelle
+    await db.execute(`
+      UPDATE odemeler 
+      SET odeme_tipi = ?, tutar = ?, odeme_tarihi = NOW()
+      WHERE id = ?
+    `, [odeme_tipi, tutar, tableId]);
+    
+    res.json({
+      success: true,
+      message: 'Masa ödeme bilgileri güncellendi'
+    });
+    
+  } catch (error) {
+    console.error('Table payment update error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Masa ödeme bilgileri güncellenemedi' 
+    });
+  }
+});
+
+// Raporlar API endpoint'leri
+
+// Tarih aralığına göre ciro raporu
+app.get('/api/reports/revenue', async (req, res) => {
+  try {
+    const { startDate, endDate, subeId } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Başlangıç ve bitiş tarihi gerekli' 
+      });
+    }
+
+    // Şube filtresi
+    const subeFilter = subeId ? 'AND sube_id = ?' : '';
+    const params = subeId ? [startDate, endDate, subeId] : [startDate, endDate];
+
+    // Toplam ciro
+    const [totalRevenue] = await db.execute(`
+      SELECT 
+        SUM(tutar) as toplam_ciro,
+        COUNT(*) as toplam_islem
+      FROM odemeler 
+      WHERE DATE(odeme_tarihi) BETWEEN ? AND ? ${subeFilter}
+    `, params);
+
+    // Ödeme tipine göre ciro
+    const [paymentTypeRevenue] = await db.execute(`
+      SELECT 
+        odeme_tipi,
+        SUM(tutar) as toplam_tutar,
+        COUNT(*) as islem_sayisi
+      FROM odemeler 
+      WHERE DATE(odeme_tarihi) BETWEEN ? AND ? ${subeFilter}
+      GROUP BY odeme_tipi
+      ORDER BY toplam_tutar DESC
+    `, params);
+
+    // Günlük ciro
+    const [dailyRevenue] = await db.execute(`
+      SELECT 
+        DATE(odeme_tarihi) as tarih,
+        SUM(tutar) as gunluk_ciro,
+        COUNT(*) as islem_sayisi
+      FROM odemeler 
+      WHERE DATE(odeme_tarihi) BETWEEN ? AND ? ${subeFilter}
+      GROUP BY DATE(odeme_tarihi)
+      ORDER BY tarih
+    `, params);
+
+    // Saatlik ciro (bugün için)
+    const hourlyParams = subeId ? [subeId] : [];
+    const [hourlyRevenue] = await db.execute(`
+      SELECT 
+        HOUR(odeme_tarihi) as saat,
+        SUM(tutar) as saatlik_ciro,
+        COUNT(*) as islem_sayisi
+      FROM odemeler 
+      WHERE DATE(odeme_tarihi) = CURDATE() ${subeId ? 'AND sube_id = ?' : ''}
+      GROUP BY HOUR(odeme_tarihi)
+      ORDER BY saat
+    `, hourlyParams);
+
+    res.json({
+      success: true,
+      data: {
+        totalRevenue: totalRevenue[0] || { toplam_ciro: 0, toplam_islem: 0 },
+        paymentTypeRevenue: paymentTypeRevenue,
+        dailyRevenue: dailyRevenue,
+        hourlyRevenue: hourlyRevenue
+      }
+    });
+    
+  } catch (error) {
+    console.error('Revenue report error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Ciro raporu getirilemedi' 
+    });
+  }
+});
+
+// Detaylı satış raporu
+app.get('/api/reports/sales', async (req, res) => {
+  try {
+    const { startDate, endDate, subeId } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Başlangıç ve bitiş tarihi gerekli' 
+      });
+    }
+
+    // Şube filtresi
+    const subeFilter = subeId ? 'AND s.sube_id = ?' : '';
+    const params = subeId ? [startDate, endDate, subeId] : [startDate, endDate];
+
+    // En çok satılan ürünler
+    const [topProducts] = await db.execute(`
+      SELECT 
+        sd.urun_adi,
+        SUM(sd.adet) as toplam_adet,
+        SUM(sd.toplam_fiyat) as toplam_tutar,
+        COUNT(DISTINCT s.id) as siparis_sayisi
+      FROM siparis_detaylari sd
+      JOIN siparisler s ON sd.siparis_id = s.id
+      WHERE DATE(s.created_at) BETWEEN ? AND ? ${subeFilter}
+      GROUP BY sd.urun_adi
+      ORDER BY toplam_adet DESC
+      LIMIT 10
+    `, params);
+
+    // Kategori bazında satış
+    const [categorySales] = await db.execute(`
+      SELECT 
+        k.ad as kategori_adi,
+        SUM(sd.toplam_fiyat) as toplam_tutar,
+        SUM(sd.adet) as toplam_adet
+      FROM siparis_detaylari sd
+      JOIN siparisler s ON sd.siparis_id = s.id
+      JOIN urunler u ON sd.urun_id = u.id
+      JOIN kategoriler k ON u.kategori_id = k.id
+      WHERE DATE(s.created_at) BETWEEN ? AND ? ${subeFilter}
+      GROUP BY k.id, k.ad
+      ORDER BY toplam_tutar DESC
+    `, params);
+
+    res.json({
+      success: true,
+      data: {
+        topProducts: topProducts,
+        categorySales: categorySales
+      }
+    });
+    
+  } catch (error) {
+    console.error('Sales report error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Satış raporu getirilemedi' 
     });
   }
 });

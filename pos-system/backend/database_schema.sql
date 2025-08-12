@@ -129,17 +129,39 @@ CREATE TABLE odemeler (
 );
 
 -- ========================================
+-- STOK (INVENTORY)
+-- ========================================
+CREATE TABLE stok (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    urun_id INT NOT NULL,
+    urun_adi VARCHAR(100) NOT NULL,
+    mevcut_stok INT NOT NULL DEFAULT 0,
+    minimum_stok INT NOT NULL DEFAULT 0,
+    birim VARCHAR(20) DEFAULT 'adet',
+    son_guncelleme TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    sube_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (urun_id) REFERENCES urunler(id) ON DELETE CASCADE,
+    FOREIGN KEY (sube_id) REFERENCES subeler(id) ON DELETE CASCADE
+);
+
+-- ========================================
 -- STOK HAREKETLERİ (INVENTORY MOVEMENTS)
 -- ========================================
 CREATE TABLE stok_hareketleri (
     id INT PRIMARY KEY AUTO_INCREMENT,
     urun_id INT NOT NULL,
+    hareket_tipi ENUM('giris', 'cikis', 'duzeltme') NOT NULL,
     miktar INT NOT NULL,
-    stok_limiti INT NOT NULL,
     onceki_stok INT NOT NULL,
     yeni_stok INT NOT NULL,
+    aciklama TEXT,
+    sube_id INT NOT NULL,
+    kullanici_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (urun_id) REFERENCES urunler(id) ON DELETE CASCADE
+    FOREIGN KEY (urun_id) REFERENCES urunler(id) ON DELETE CASCADE,
+    FOREIGN KEY (sube_id) REFERENCES subeler(id) ON DELETE CASCADE,
+    FOREIGN KEY (kullanici_id) REFERENCES kullanicilar(id) ON DELETE SET NULL
 );
 
 -- ========================================
@@ -184,3 +206,6 @@ CREATE INDEX idx_masalar_durum ON masalar(durum);
 CREATE INDEX idx_urunler_kategori ON urunler(kategori_id);
 CREATE INDEX idx_kullanicilar_rol ON kullanicilar(rol);
 CREATE INDEX idx_stok_hareketleri_urun ON stok_hareketleri(urun_id);
+CREATE INDEX idx_stok_hareketleri_tarih ON stok_hareketleri(created_at);
+CREATE INDEX idx_stok_urun ON stok(urun_id);
+CREATE INDEX idx_stok_sube ON stok(sube_id);

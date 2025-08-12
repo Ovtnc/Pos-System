@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
-import { CssBaseline, Box } from '@mui/material';
+import { CssBaseline, Box, Button } from '@mui/material';
 import { theme } from './theme';
 import Header from './components/Header';
 import CategorySidebar from './components/CategorySidebar';
@@ -10,6 +10,9 @@ import PaymentModal from './components/PaymentModal';
 import ReceiptModal from './components/ReceiptModal';
 import TablesModal from './components/TablesModal';
 import Dashboard from './components/Dashboard';
+import StockManagement from './components/StockManagement';
+import TableCallModal from './components/TableCallModal';
+import Reports from './components/Reports';
 import Login from './components/Login';
 
 import { Product } from './services/api';
@@ -41,6 +44,9 @@ function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [stockManagementOpen, setStockManagementOpen] = useState(false);
+  const [tableCallModalOpen, setTableCallModalOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
 
   const handleMenuClick = () => {
     setSidebarOpen(!sidebarOpen);
@@ -181,6 +187,12 @@ function App() {
     setIsAuthenticated(false);
   };
 
+  const clearLocalStorage = () => {
+    localStorage.removeItem('user');
+    setUser(null);
+    setIsAuthenticated(false);
+  };
+
   // Sayfa yüklendiğinde kullanıcı kontrolü
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -212,6 +224,7 @@ function App() {
           amount: amount,
           tableId: selectedTable?.id,
           paymentMethod: paymentMethod,
+          userId: user?.id,
         }),
       });
 
@@ -279,10 +292,11 @@ function App() {
           cartItemCount={cartItems.length}
           onTablesClick={() => setTablesModalOpen(true)}
           onDashboardClick={() => setDashboardOpen(true)}
-
           user={user}
           onLogout={handleLogout}
         />
+        
+      
         
         {/* Main Content */}
         <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -363,6 +377,41 @@ function App() {
               // Sipariş ekranına yönlendir - burada masalar modalını açabiliriz
               setTablesModalOpen(true);
             }}
+            onStockClick={() => {
+              setDashboardOpen(false); // Dashboard'ı kapat
+              setStockManagementOpen(true); // Stok yönetimini aç
+            }}
+            onTableCallClick={() => {
+              setDashboardOpen(false); // Dashboard'ı kapat
+              setTableCallModalOpen(true); // Masa çağır modalını aç
+            }}
+            onReportsClick={() => {
+              setDashboardOpen(false); // Dashboard'ı kapat
+              setReportsOpen(true); // Raporlar sayfasını aç
+            }}
+          />
+        )}
+
+        {/* Stock Management */}
+        {stockManagementOpen && (
+          <StockManagement 
+            user={user} 
+            onBack={() => setStockManagementOpen(false)}
+          />
+        )}
+
+        {/* Table Call Modal */}
+        <TableCallModal
+          open={tableCallModalOpen}
+          onClose={() => setTableCallModalOpen(false)}
+          user={user}
+        />
+
+        {/* Reports */}
+        {reportsOpen && (
+          <Reports
+            user={user}
+            onBack={() => setReportsOpen(false)}
           />
         )}
       </Box>
