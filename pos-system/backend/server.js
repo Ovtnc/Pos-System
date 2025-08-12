@@ -274,6 +274,181 @@ app.get('/api/schema/subeler', async (req, res) => {
 
 
 
+// Dashboard endpoint
+app.get('/api/dashboard', async (req, res) => {
+  try {
+    const { sube } = req.query;
+    const subeId = sube === 'merkez' ? 1 : sube === 'ozgurluk' ? 2 : 1;
+
+    // Günlük satışlar
+    const [dailySales] = await db.execute(`
+      SELECT 
+        COALESCE(SUM(tutar), 0) as total_sales,
+        COUNT(*) as transaction_count
+      FROM odemeler 
+      WHERE DATE(created_at) = CURDATE() 
+      AND sube_id = ?
+    `, [subeId]);
+
+    // Haftalık satışlar
+    const [weeklySales] = await db.execute(`
+      SELECT 
+        COALESCE(SUM(tutar), 0) as total_sales,
+        COUNT(*) as transaction_count
+      FROM odemeler 
+      WHERE YEARWEEK(created_at) = YEARWEEK(NOW()) 
+      AND sube_id = ?
+    `, [subeId]);
+
+    // Aylık satışlar
+    const [monthlySales] = await db.execute(`
+      SELECT 
+        COALESCE(SUM(tutar), 0) as total_sales,
+        COUNT(*) as transaction_count
+      FROM odemeler 
+      WHERE YEAR(created_at) = YEAR(NOW()) 
+      AND MONTH(created_at) = MONTH(NOW())
+      AND sube_id = ?
+    `, [subeId]);
+
+    // Yıllık satışlar
+    const [yearlySales] = await db.execute(`
+      SELECT 
+        COALESCE(SUM(tutar), 0) as total_sales,
+        COUNT(*) as transaction_count
+      FROM odemeler 
+      WHERE YEAR(created_at) = YEAR(NOW())
+      AND sube_id = ?
+    `, [subeId]);
+
+    // Ödeme yöntemlerine göre bugünkü satışlar
+    const [paymentMethods] = await db.execute(`
+      SELECT 
+        odeme_tipi,
+        COALESCE(SUM(tutar), 0) as total_amount
+      FROM odemeler 
+      WHERE DATE(created_at) = CURDATE() 
+      AND sube_id = ?
+      GROUP BY odeme_tipi
+    `, [subeId]);
+
+    // Son 10 satış
+    const [recentSales] = await db.execute(`
+      SELECT 
+        id,
+        odeme_no,
+        tutar,
+        odeme_tipi,
+        created_at
+      FROM odemeler 
+      WHERE sube_id = ?
+      ORDER BY created_at DESC
+      LIMIT 10
+    `, [subeId]);
+
+    // Bu ayın günlük satış analizi
+    const [dailySalesThisMonth] = await db.execute(`
+      SELECT 
+        DATE(created_at) as date,
+        COALESCE(SUM(tutar), 0) as total_sales,
+        COUNT(*) as transaction_count
+      FROM odemeler 
+      WHERE YEAR(created_at) = YEAR(NOW()) 
+      AND MONTH(created_at) = MONTH(NOW())
+      AND sube_id = ?
+      GROUP BY DATE(created_at)
+      ORDER BY date
+    `, [subeId]);
+
+    // En çok satan ürünler
+    const [topProducts] = await db.execute(`
+      SELECT 
+        u.isim as product_name,
+        SUM(sd.adet) as total_quantity,
+        SUM(sd.toplam_fiyat) as total_revenue
+      FROM siparis_detaylari sd
+      JOIN urunler u ON sd.urun_id = u.id
+      WHERE MONTH(sd.created_at) = MONTH(NOW())
+      AND YEAR(sd.created_at) = YEAR(NOW())
+      GROUP BY u.id, u.isim
+      ORDER BY total_quantity DESC
+      LIMIT 10
+    `);
+
+    // Günlük saatlik satış (bugün)
+    const [hourlySalesToday] = await db.execute(`
+      SELECT 
+        HOUR(created_at) as hour,
+        COALESCE(SUM(tutar), 0) as total_sales,
+        COUNT(*) as transaction_count
+      FROM odemeler 
+      WHERE DATE(created_at) = CURDATE() 
+      AND sube_id = ?
+      GROUP BY HOUR(created_at)
+      ORDER BY hour
+    `, [subeId]);
+
+    // Ödeme türleri dağılımı (bu ay)
+    const [paymentTypeDistribution] = await db.execute(`
+      SELECT 
+        odeme_tipi,
+        COUNT(*) as count,
+        COALESCE(SUM(tutar), 0) as total_amount
+      FROM odemeler 
+      WHERE YEAR(created_at) = YEAR(NOW()) 
+      AND MONTH(created_at) = MONTH(NOW())
+      AND sube_id = ?
+      GROUP BY odeme_tipi
+    `, [subeId]);
+
+    // Ödeme yöntemlerini düzenle
+    const paymentDetails = {
+      nakit_satis: 0,
+      kart_satis: 0,
+      mudavim_satis: 0
+    };
+
+    paymentMethods.forEach((payment) => {
+      switch (payment.odeme_tipi) {
+        case 'nakit':
+          paymentDetails.nakit_satis = payment.total_amount;
+          break;
+        case 'kart':
+          paymentDetails.kart_satis = payment.total_amount;
+          break;
+        case 'mudavim':
+          paymentDetails.mudavim_satis = payment.total_amount;
+          break;
+      }
+    });
+
+    res.json({
+      success: true,
+      dailySales: dailySales[0]?.total_sales || 0,
+      dailyTransactions: dailySales[0]?.transaction_count || 0,
+      weeklySales: weeklySales[0]?.total_sales || 0,
+      weeklyTransactions: weeklySales[0]?.transaction_count || 0,
+      monthlySales: monthlySales[0]?.total_sales || 0,
+      monthlyTransactions: monthlySales[0]?.transaction_count || 0,
+      yearlySales: yearlySales[0]?.total_sales || 0,
+      yearlyTransactions: yearlySales[0]?.transaction_count || 0,
+      paymentDetails: paymentDetails,
+      recentSales: recentSales || [],
+      dailySalesThisMonth: dailySalesThisMonth || [],
+      topProducts: topProducts || [],
+      hourlySalesToday: hourlySalesToday || [],
+      paymentTypeDistribution: paymentTypeDistribution || []
+    });
+
+  } catch (error) {
+    console.error('Dashboard fetch error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Dashboard verileri getirilemedi' 
+    });
+  }
+});
+
 app.get('/api/subeler', async (req, res) => {
   try {
     const [subeler] = await db.execute(`
@@ -427,12 +602,12 @@ app.get('/api/products/category/:categoryId', async (req, res) => {
       // Normal kategori ürünleri
       const [categoryProducts] = await db.execute(`
         SELECT u.id, u.isim as name, u.fiyat as price, u.kategori_id, k.ad as category, 'normal' as type
-        FROM urunler u
-        LEFT JOIN kategoriler k ON u.kategori_id = k.id
+      FROM urunler u
+      LEFT JOIN kategoriler k ON u.kategori_id = k.id
         WHERE u.kategori_id = ? AND u.aktif = 1
         ORDER BY u.isim
-      `, [categoryId]);
-      
+    `, [categoryId]);
+
       products = categoryProducts;
     }
 
@@ -614,7 +789,7 @@ app.get('/api/tables/all', async (req, res) => {
       ORDER BY masa_adi
     `);
 
-    res.json({
+  res.json({ 
       success: true,
       tables: tables
     });
@@ -694,8 +869,8 @@ app.post('/api/tables/close', async (req, res) => {
     const { tableId } = req.body;
     
     if (!tableId) {
-      return res.status(400).json({ 
-        success: false, 
+      return res.status(400).json({
+        success: false,
         error: 'Masa ID gerekli' 
       });
     }
@@ -706,13 +881,13 @@ app.post('/api/tables/close', async (req, res) => {
       SET durum = 'kapali', kapanis_tarihi = NOW()
       WHERE id = ?
     `, [tableId]);
-
+    
     res.json({
       success: true,
       message: 'Masa başarıyla kapatıldı',
       tableId: tableId
     });
-
+    
   } catch (error) {
     console.error('Table close error:', error);
     res.status(500).json({ 
@@ -740,13 +915,13 @@ app.post('/api/tables/reserve', async (req, res) => {
       SET durum = 'rezerve'
       WHERE id = ?
     `, [tableId]);
-
+    
     res.json({
       success: true,
       message: 'Masa başarıyla rezerve edildi',
       tableId: tableId
     });
-
+    
   } catch (error) {
     console.error('Table reserve error:', error);
     res.status(500).json({ 
@@ -773,7 +948,7 @@ app.get('/api/tables/:tableId', async (req, res) => {
         error: 'Masa bulunamadı' 
       });
     }
-
+    
     res.json({
       success: true,
       table: tables[0]
@@ -817,20 +992,20 @@ app.post('/api/orders', async (req, res) => {
     // Sipariş detayları
     for (const item of items) {
       await db.execute(`
-        INSERT INTO siparis_detaylari (siparis_id, urun_id, urun_adi, adet, birim_fiyat, toplam_fiyat)
+        INSERT INTO siparis_detaylari (siparis_id, urun_id, urun_adi, adet, birim_fiyat, toplam_fiyat) 
         VALUES (?, ?, ?, ?, ?, ?)
       `, [siparisId, item.id, item.name, item.quantity, item.price, item.price * item.quantity]);
     }
-
+    
     // Masa güncelleme (eğer masa varsa)
     if (tableId) {
-      await db.execute(`
+    await db.execute(`
         UPDATE masalar 
         SET toplam_tutar = toplam_tutar + ?, updated_at = NOW()
-        WHERE id = ?
+      WHERE id = ?
       `, [totalAmount, tableId]);
     }
-
+    
     res.json({
       success: true,
       message: 'Sipariş başarıyla oluşturuldu',
@@ -838,7 +1013,7 @@ app.post('/api/orders', async (req, res) => {
       siparisNo: siparisNo,
       totalAmount: totalAmount
     });
-
+    
   } catch (error) {
     console.error('Order creation error:', error);
     res.status(500).json({ 
@@ -866,7 +1041,7 @@ app.get('/api/orders/table/:tableId', async (req, res) => {
       success: true,
       orders: orders
     });
-
+    
   } catch (error) {
     console.error('Table orders fetch error:', error);
     res.status(500).json({ 
@@ -894,7 +1069,7 @@ app.put('/api/orders/:orderId/status', async (req, res) => {
       SET durum = ?, updated_at = NOW()
       WHERE id = ?
     `, [status, orderId]);
-
+    
     res.json({
       success: true,
       message: 'Sipariş durumu güncellendi'
@@ -918,7 +1093,7 @@ app.get('/api/payments', async (req, res) => {
       ORDER BY odeme_tarihi DESC
       LIMIT 10
     `);
-
+    
     res.json({
       success: true,
       payments: payments
